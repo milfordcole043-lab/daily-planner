@@ -3,6 +3,8 @@ from __future__ import annotations
 import sqlite3
 from datetime import date
 
+import pytest
+
 from planner import db
 
 
@@ -54,3 +56,57 @@ def test_get_tasks_between(conn: sqlite3.Connection) -> None:
     db.add_task(conn, "This week")
     tasks = db.get_tasks_between(conn, date.today(), date.today())
     assert len(tasks) == 1
+
+
+def test_get_overdue_tasks(conn: sqlite3.Connection) -> None:
+    # Insert a task with a past date directly
+    conn.execute(
+        "INSERT INTO tasks (description, created_at) VALUES (?, ?)",
+        ("Old task", "2026-03-20"),
+    )
+    conn.commit()
+    db.add_task(conn, "Today task")
+    overdue = db.get_overdue_tasks(conn, date.today())
+    assert len(overdue) == 1
+    assert overdue[0].description == "Old task"
+
+
+def test_get_overdue_excludes_done(conn: sqlite3.Connection) -> None:
+    conn.execute(
+        "INSERT INTO tasks (description, created_at, done) VALUES (?, ?, 1)",
+        ("Done old task", "2026-03-20"),
+    )
+    conn.commit()
+    overdue = db.get_overdue_tasks(conn, date.today())
+    assert len(overdue) == 0
+
+
+def test_set_focus(conn: sqlite3.Connection) -> None:
+    t1 = db.add_task(conn, "Task 1")
+    t2 = db.add_task(conn, "Task 2")
+    focused = db.set_focus(conn, [t1.id, t2.id], date.today())
+    assert len(focused) == 2
+    assert {t.id for t in focused} == {t1.id, t2.id}
+
+
+def test_get_focus_ids(conn: sqlite3.Connection) -> None:
+    t1 = db.add_task(conn, "Task 1")
+    t2 = db.add_task(conn, "Task 2")
+    db.set_focus(conn, [t1.id, t2.id], date.today())
+    ids = db.get_focus_ids(conn, date.today())
+    assert ids == {t1.id, t2.id}
+
+
+def test_set_focus_max_three(conn: sqlite3.Connection) -> None:
+    tasks = [db.add_task(conn, f"Task {i}") for i in range(4)]
+    with pytest.raises(ValueError, match="at most 3"):
+        db.set_focus(conn, [t.id for t in tasks], date.today())
+
+
+def test_set_focus_replaces_previous(conn: sqlite3.Connection) -> None:
+    t1 = db.add_task(conn, "Task 1")
+    t2 = db.add_task(conn, "Task 2")
+    db.set_focus(conn, [t1.id], date.today())
+    db.set_focus(conn, [t2.id], date.today())
+    ids = db.get_focus_ids(conn, date.today())
+    assert ids == {t2.id}

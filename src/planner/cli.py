@@ -35,14 +35,19 @@ def _show_today(ctx: click.Context) -> None:
     if not tasks:
         console.print("[dim]No tasks for today. Use [bold]plan add[/bold] to create one.[/dim]")
         return
+    focus_ids = db.get_focus_ids(conn, date.today())
+    focus_tasks = [t for t in tasks if t.id in focus_ids]
+    other_tasks = [t for t in tasks if t.id not in focus_ids]
     table = Table(title=f"Tasks for {date.today()}")
     table.add_column("ID", style="dim")
     table.add_column("Task")
     table.add_column("Status")
-    for t in tasks:
+    for t in focus_tasks + other_tasks:
         status = "[green]done[/green]" if t.done else "[yellow]pending[/yellow]"
+        prefix = "★ " if t.id in focus_ids else ""
         desc = f"[s]{t.description}[/s]" if t.done else t.description
-        table.add_row(str(t.id), desc, status)
+        style = "bold cyan" if t.id in focus_ids else None
+        table.add_row(str(t.id), f"{prefix}{desc}", status, style=style)
     console.print(table)
 
 
@@ -78,6 +83,56 @@ def remove(ctx: click.Context, task_id: int) -> None:
         console.print(f"[green]Removed:[/green] #{task_id}")
     else:
         console.print(f"[red]Task #{task_id} not found.[/red]")
+
+
+@cli.command()
+@click.pass_context
+def morning(ctx: click.Context) -> None:
+    """Show a morning briefing with today's tasks and overdue items."""
+    conn = _get_conn(ctx)
+    today = date.today()
+    day_name = today.strftime("%A")
+    console.print(f"\n[bold]Good morning![/bold] Today is [cyan]{day_name}, {today}[/cyan]\n")
+
+    overdue = db.get_overdue_tasks(conn, today)
+    today_tasks = db.get_tasks_for_date(conn, today)
+
+    if overdue:
+        console.print(f"[bold red]Overdue ({len(overdue)}):[/bold red]")
+        for t in overdue:
+            console.print(f"  [red]#{t.id}[/red] {t.description} [dim](from {t.created_at})[/dim]")
+        console.print()
+
+    if today_tasks:
+        pending = [t for t in today_tasks if not t.done]
+        done = [t for t in today_tasks if t.done]
+        console.print(f"[bold]Today's tasks:[/bold] {len(pending)} pending, {len(done)} done")
+        for t in today_tasks:
+            status = "[green]✓[/green]" if t.done else "[yellow]○[/yellow]"
+            console.print(f"  {status} #{t.id} {t.description}")
+    else:
+        console.print("[dim]No tasks for today yet.[/dim]")
+
+    console.print()
+
+
+@cli.command()
+@click.argument("task_ids", nargs=-1, type=int, required=True)
+@click.pass_context
+def focus(ctx: click.Context, task_ids: tuple[int, ...]) -> None:
+    """Pick up to 3 focus tasks for today. Usage: plan focus 1 3 5"""
+    conn = _get_conn(ctx)
+    ids = list(task_ids)
+    if len(ids) > 3:
+        console.print("[red]You can focus on at most 3 tasks per day.[/red]")
+        return
+    try:
+        focused = db.set_focus(conn, ids, date.today())
+    except ValueError as e:
+        console.print(f"[red]{e}[/red]")
+        return
+    names = ", ".join(f"#{t.id} {t.description}" for t in focused)
+    console.print(f"[green]Focus set:[/green] {names}")
 
 
 @cli.command()
