@@ -227,6 +227,94 @@ def overdue(ctx: click.Context) -> None:
 
 @cli.command()
 @click.pass_context
+def stats(ctx: click.Context) -> None:
+    """Show productivity stats."""
+    conn = _get_conn(ctx)
+    all_tasks = db.get_all_tasks(conn)
+    if not all_tasks:
+        console.print("[dim]No tasks yet.[/dim]")
+        return
+
+    total = len(all_tasks)
+    completed = sum(1 for t in all_tasks if t.done)
+    pending = total - completed
+    rate = round(completed / total * 100)
+
+    daily = db.get_daily_completion(conn)
+    days_with_tasks = len(daily)
+    avg_per_day = round(completed / days_with_tasks, 1) if days_with_tasks else 0
+
+    # Most productive weekday
+    weekday_counts: dict[str, int] = {}
+    for day_str, _, done_count in daily:
+        day_obj = date.fromisoformat(day_str)
+        name = day_obj.strftime("%A")
+        weekday_counts[name] = weekday_counts.get(name, 0) + done_count
+    best_day = max(weekday_counts, key=weekday_counts.get) if weekday_counts else "N/A"
+
+    # Current streak
+    current_streak = _calc_streak(daily, current_only=True)
+
+    console.print("\n[bold]Productivity Stats[/bold]\n")
+    console.print(f"  Total tasks:       {total}")
+    console.print(f"  Completed:         [green]{completed}[/green]")
+    console.print(f"  Pending:           [yellow]{pending}[/yellow]")
+    console.print(f"  Completion rate:   [bold]{rate}%[/bold]")
+    console.print(f"  Avg completed/day: {avg_per_day}")
+    console.print(f"  Most productive:   [cyan]{best_day}[/cyan]")
+    console.print(f"  Current streak:    🔥 {current_streak} day{'s' if current_streak != 1 else ''}")
+    console.print()
+
+
+@cli.command()
+@click.pass_context
+def streak(ctx: click.Context) -> None:
+    """Show your completion streak."""
+    conn = _get_conn(ctx)
+    daily = db.get_daily_completion(conn)
+    if not daily:
+        console.print("[dim]No tasks yet.[/dim]")
+        return
+
+    current = _calc_streak(daily, current_only=True)
+    longest = _calc_streak(daily, current_only=False)
+
+    today_tasks = db.get_tasks_for_date(conn, date.today())
+    today_done = sum(1 for t in today_tasks if t.done)
+    today_total = len(today_tasks)
+
+    console.print(f"\n🔥 Current streak: [bold]{current}[/bold] day{'s' if current != 1 else ''}")
+    console.print(f"🏆 Longest streak: [bold]{longest}[/bold] day{'s' if longest != 1 else ''}")
+    if today_total:
+        console.print(f"📋 Today: [bold]{today_done}/{today_total}[/bold] tasks done")
+    else:
+        console.print("[dim]No tasks for today yet.[/dim]")
+    console.print()
+
+
+def _calc_streak(daily: list[tuple[str, int, int]], *, current_only: bool) -> int:
+    if current_only:
+        streak = 0
+        for day_str, total, done in reversed(daily):
+            if total == done:
+                streak += 1
+            else:
+                break
+        return streak
+    else:
+        longest = 0
+        current = 0
+        for _, total, done in daily:
+            if total == done:
+                current += 1
+                longest = max(longest, current)
+            else:
+                current = 0
+        return longest
+
+
+@cli.command()
+@click.pass_context
 def week(ctx: click.Context) -> None:
     """Show a weekly summary."""
     conn = _get_conn(ctx)

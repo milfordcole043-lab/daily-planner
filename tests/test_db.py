@@ -244,3 +244,42 @@ def test_overdue_tasks_sorted_by_priority(conn: sqlite3.Connection) -> None:
     assert tasks[0].description == "High task"
     assert tasks[1].description == "Medium task"
     assert tasks[2].description == "Low task"
+
+
+# --- Stats & streak tests ---
+
+
+def test_get_all_tasks(conn: sqlite3.Connection) -> None:
+    db.add_task(conn, "Task 1")
+    db.add_task(conn, "Task 2")
+    db.complete_task(conn, 1)
+    tasks = db.get_all_tasks(conn)
+    assert len(tasks) == 2
+    assert sum(1 for t in tasks if t.done) == 1
+
+
+def test_get_all_tasks_empty(conn: sqlite3.Connection) -> None:
+    assert db.get_all_tasks(conn) == []
+
+
+def test_get_daily_completion(conn: sqlite3.Connection) -> None:
+    # Insert tasks on two different days
+    conn.execute(
+        "INSERT INTO tasks (description, created_at, done) VALUES (?, ?, 1)",
+        ("Done task", "2026-03-25"),
+    )
+    conn.execute(
+        "INSERT INTO tasks (description, created_at, done) VALUES (?, ?, 0)",
+        ("Pending task", "2026-03-25"),
+    )
+    conn.execute(
+        "INSERT INTO tasks (description, created_at, done) VALUES (?, ?, 1)",
+        ("All done", "2026-03-26"),
+    )
+    conn.commit()
+    rows = db.get_daily_completion(conn)
+    assert len(rows) == 2
+    # First day: 2 total, 1 completed
+    assert rows[0] == ("2026-03-25", 2, 1)
+    # Second day: 1 total, 1 completed
+    assert rows[1] == ("2026-03-26", 1, 1)

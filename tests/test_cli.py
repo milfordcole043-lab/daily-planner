@@ -255,3 +255,57 @@ def test_morning_overdue_by_priority(tmp_path: Path) -> None:
     high_pos = result.output.index("High prio")
     low_pos = result.output.index("Low prio")
     assert high_pos < low_pos
+
+
+# --- Stats & streak CLI tests ---
+
+
+def test_stats_empty(tmp_path: Path) -> None:
+    result = _invoke(tmp_path, ["stats"])
+    assert result.exit_code == 0
+    assert "No tasks" in result.output
+
+
+def test_stats_with_data(tmp_path: Path) -> None:
+    _invoke(tmp_path, ["add", "Task 1"])
+    _invoke(tmp_path, ["add", "Task 2"])
+    _invoke(tmp_path, ["done", "1"])
+    result = _invoke(tmp_path, ["stats"])
+    assert result.exit_code == 0
+    assert "2" in result.output  # total
+    assert "1" in result.output  # completed
+    assert "50" in result.output  # completion rate
+
+
+def test_streak_empty(tmp_path: Path) -> None:
+    result = _invoke(tmp_path, ["streak"])
+    assert result.exit_code == 0
+    assert "No tasks" in result.output
+
+
+def test_streak_with_data(tmp_path: Path) -> None:
+    from planner import db as _db
+
+    conn = _db.connect(Path(tmp_path / "test.db"))
+    # Two consecutive days, all tasks done
+    conn.execute(
+        "INSERT INTO tasks (description, created_at, done) VALUES (?, ?, 1)",
+        ("Day1 task", "2026-03-30"),
+    )
+    conn.execute(
+        "INSERT INTO tasks (description, created_at, done) VALUES (?, ?, 1)",
+        ("Day2 task", "2026-03-31"),
+    )
+    conn.commit()
+    conn.close()
+    result = _invoke(tmp_path, ["streak"])
+    assert result.exit_code == 0
+    assert "🔥" in result.output
+
+
+def test_streak_shows_today_progress(tmp_path: Path) -> None:
+    _invoke(tmp_path, ["add", "Task A"])
+    _invoke(tmp_path, ["add", "Task B"])
+    _invoke(tmp_path, ["done", "1"])
+    result = _invoke(tmp_path, ["streak"])
+    assert "1/2" in result.output

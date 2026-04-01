@@ -192,6 +192,22 @@ def get_tasks_due_on(conn: sqlite3.Connection, day: date) -> list[Task]:
     return tasks
 
 
+def get_all_tasks(conn: sqlite3.Connection) -> list[Task]:
+    rows = conn.execute(
+        "SELECT id, description, created_at, done, done_at, priority, due_date FROM tasks",
+    ).fetchall()
+    tasks = [_row_to_task(r) for r in rows]
+    _attach_tags(conn, tasks)
+    return tasks
+
+
+def get_daily_completion(conn: sqlite3.Connection) -> list[tuple[str, int, int]]:
+    rows = conn.execute(
+        "SELECT created_at, COUNT(*), SUM(done) FROM tasks GROUP BY created_at ORDER BY created_at",
+    ).fetchall()
+    return [(r[0], r[1], int(r[2])) for r in rows]
+
+
 def get_tags_for_tasks(conn: sqlite3.Connection, task_ids: list[int]) -> dict[int, list[str]]:
     if not task_ids:
         return {}
