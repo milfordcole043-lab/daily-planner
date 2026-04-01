@@ -192,6 +192,30 @@ def get_tasks_due_on(conn: sqlite3.Connection, day: date) -> list[Task]:
     return tasks
 
 
+def edit_task(conn: sqlite3.Connection, task_id: int, description: str) -> bool:
+    cur = conn.execute(
+        "UPDATE tasks SET description = ? WHERE id = ?",
+        (description, task_id),
+    )
+    conn.commit()
+    return cur.rowcount > 0
+
+
+def move_task(conn: sqlite3.Connection, task_id: int, new_date: date) -> bool:
+    cur = conn.execute(
+        "UPDATE tasks SET created_at = ? WHERE id = ?",
+        (new_date.isoformat(), task_id),
+    )
+    conn.commit()
+    return cur.rowcount > 0
+
+
+def clear_done(conn: sqlite3.Connection) -> int:
+    cur = conn.execute("DELETE FROM tasks WHERE done = 1")
+    conn.commit()
+    return cur.rowcount
+
+
 def get_all_tasks(conn: sqlite3.Connection) -> list[Task]:
     rows = conn.execute(
         "SELECT id, description, created_at, done, done_at, priority, due_date FROM tasks",

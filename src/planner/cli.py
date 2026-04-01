@@ -167,6 +167,52 @@ def focus(ctx: click.Context, task_ids: tuple[int, ...]) -> None:
 
 
 @cli.command()
+@click.argument("task_id", type=int)
+@click.argument("description")
+@click.pass_context
+def edit(ctx: click.Context, task_id: int, description: str) -> None:
+    """Rename a task. Usage: plan edit 1 "new description" """
+    conn = _get_conn(ctx)
+    if db.edit_task(conn, task_id, description):
+        console.print(f"[green]Updated:[/green] #{task_id} — {description}")
+    else:
+        console.print(f"[red]Task #{task_id} not found.[/red]")
+
+
+@cli.command()
+@click.argument("task_id", type=int)
+@click.argument("target")
+@click.pass_context
+def move(ctx: click.Context, task_id: int, target: str) -> None:
+    """Reschedule a task. Usage: plan move 1 tomorrow  or  plan move 1 2026-04-05"""
+    conn = _get_conn(ctx)
+    if target == "tomorrow":
+        new_date = date.today() + timedelta(days=1)
+    else:
+        try:
+            new_date = date.fromisoformat(target)
+        except ValueError:
+            console.print(f'[red]Invalid date: "{target}". Use "tomorrow" or YYYY-MM-DD.[/red]')
+            return
+    if db.move_task(conn, task_id, new_date):
+        console.print(f"[green]Moved:[/green] #{task_id} → {new_date}")
+    else:
+        console.print(f"[red]Task #{task_id} not found.[/red]")
+
+
+@cli.command()
+@click.pass_context
+def clear(ctx: click.Context) -> None:
+    """Remove all completed tasks."""
+    conn = _get_conn(ctx)
+    count = db.clear_done(conn)
+    if count:
+        console.print(f"[green]Cleared {count} completed task{'s' if count != 1 else ''}.[/green]")
+    else:
+        console.print("[dim]No completed tasks to clear.[/dim]")
+
+
+@cli.command()
 @click.argument("tag_name")
 @click.pass_context
 def tag(ctx: click.Context, tag_name: str) -> None:

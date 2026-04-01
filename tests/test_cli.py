@@ -309,3 +309,57 @@ def test_streak_shows_today_progress(tmp_path: Path) -> None:
     _invoke(tmp_path, ["done", "1"])
     result = _invoke(tmp_path, ["streak"])
     assert "1/2" in result.output
+
+
+# --- Edit, move, clear CLI tests ---
+
+
+def test_edit_command(tmp_path: Path) -> None:
+    _invoke(tmp_path, ["add", "Old name"])
+    result = _invoke(tmp_path, ["edit", "1", "New name"])
+    assert result.exit_code == 0
+    assert "Updated" in result.output
+    result = _invoke(tmp_path)
+    assert "New name" in result.output
+
+
+def test_edit_invalid(tmp_path: Path) -> None:
+    result = _invoke(tmp_path, ["edit", "999", "Nope"])
+    assert "not found" in result.output
+
+
+def test_move_tomorrow(tmp_path: Path) -> None:
+    _invoke(tmp_path, ["add", "Move me"])
+    result = _invoke(tmp_path, ["move", "1", "tomorrow"])
+    assert result.exit_code == 0
+    assert "Moved" in result.output
+    # Task should no longer appear today
+    result = _invoke(tmp_path)
+    assert "Move me" not in result.output
+
+
+def test_move_date(tmp_path: Path) -> None:
+    _invoke(tmp_path, ["add", "Move me"])
+    result = _invoke(tmp_path, ["move", "1", "2026-04-10"])
+    assert result.exit_code == 0
+    assert "2026-04-10" in result.output
+
+
+def test_clear_command(tmp_path: Path) -> None:
+    _invoke(tmp_path, ["add", "Task 1"])
+    _invoke(tmp_path, ["add", "Task 2"])
+    _invoke(tmp_path, ["add", "Task 3"])
+    _invoke(tmp_path, ["done", "1"])
+    _invoke(tmp_path, ["done", "2"])
+    result = _invoke(tmp_path, ["clear"])
+    assert result.exit_code == 0
+    assert "2" in result.output
+    # Only pending task remains
+    result = _invoke(tmp_path)
+    assert "Task 3" in result.output
+
+
+def test_clear_nothing(tmp_path: Path) -> None:
+    _invoke(tmp_path, ["add", "Still pending"])
+    result = _invoke(tmp_path, ["clear"])
+    assert "No completed" in result.output

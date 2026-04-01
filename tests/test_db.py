@@ -283,3 +283,42 @@ def test_get_daily_completion(conn: sqlite3.Connection) -> None:
     assert rows[0] == ("2026-03-25", 2, 1)
     # Second day: 1 total, 1 completed
     assert rows[1] == ("2026-03-26", 1, 1)
+
+
+# --- Edit, move, clear tests ---
+
+
+def test_edit_task(conn: sqlite3.Connection) -> None:
+    task = db.add_task(conn, "Old name")
+    assert db.edit_task(conn, task.id, "New name") is True
+    tasks = db.get_tasks_for_date(conn, date.today())
+    assert tasks[0].description == "New name"
+
+
+def test_edit_nonexistent(conn: sqlite3.Connection) -> None:
+    assert db.edit_task(conn, 999, "Nope") is False
+
+
+def test_move_task(conn: sqlite3.Connection) -> None:
+    from datetime import timedelta
+
+    task = db.add_task(conn, "Movable task")
+    tomorrow = date.today() + timedelta(days=1)
+    assert db.move_task(conn, task.id, tomorrow) is True
+    assert db.get_tasks_for_date(conn, date.today()) == []
+    moved = db.get_tasks_for_date(conn, tomorrow)
+    assert len(moved) == 1
+    assert moved[0].description == "Movable task"
+
+
+def test_clear_done(conn: sqlite3.Connection) -> None:
+    db.add_task(conn, "Task 1")
+    db.add_task(conn, "Task 2")
+    db.add_task(conn, "Task 3")
+    db.complete_task(conn, 1)
+    db.complete_task(conn, 2)
+    cleared = db.clear_done(conn)
+    assert cleared == 2
+    remaining = db.get_tasks_for_date(conn, date.today())
+    assert len(remaining) == 1
+    assert remaining[0].description == "Task 3"
