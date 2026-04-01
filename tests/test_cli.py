@@ -114,7 +114,7 @@ def test_focus_shown_in_default_view(tmp_path: Path) -> None:
     result = _invoke(tmp_path)
     assert "Focus task" in result.output
     # Focus task should appear with a star marker
-    assert "★" in result.output
+    assert "* " in result.output
 
 
 # --- Priority & deadline CLI tests ---
@@ -135,7 +135,7 @@ def test_add_with_due_date(tmp_path: Path) -> None:
 def test_default_view_shows_priority_indicator(tmp_path: Path) -> None:
     _invoke(tmp_path, ["add", "Critical bug", "--priority", "high"])
     result = _invoke(tmp_path)
-    assert "🔴" in result.output
+    assert "!" in result.output
 
 
 def test_default_view_shows_due_date(tmp_path: Path) -> None:
@@ -300,7 +300,7 @@ def test_streak_with_data(tmp_path: Path) -> None:
     conn.close()
     result = _invoke(tmp_path, ["streak"])
     assert result.exit_code == 0
-    assert "🔥" in result.output
+    assert "Streak" in result.output
 
 
 def test_streak_shows_today_progress(tmp_path: Path) -> None:

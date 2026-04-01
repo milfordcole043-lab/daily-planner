@@ -13,9 +13,9 @@ from planner.models import Priority
 console = Console()
 
 _PRIORITY_INDICATOR = {
-    Priority.HIGH: "🔴",
-    Priority.MEDIUM: "🟡",
-    Priority.LOW: "🟢",
+    Priority.HIGH: "[red]![/red]",
+    Priority.MEDIUM: "[yellow]*[/yellow]",
+    Priority.LOW: "[green].[/green]",
 }
 
 
@@ -54,7 +54,7 @@ def _show_today(ctx: click.Context) -> None:
     table.add_column("Status")
     for t in focus_tasks + other_tasks:
         status = "[green]done[/green]" if t.done else "[yellow]pending[/yellow]"
-        prefix = "★ " if t.id in focus_ids else ""
+        prefix = "* " if t.id in focus_ids else ""
         desc = f"[s]{t.description}[/s]" if t.done else t.description
         due_str = str(t.due_date) if t.due_date else ""
         tags_str = " ".join(f"[magenta]#{tag}[/magenta]" for tag in t.tags)
@@ -138,7 +138,7 @@ def morning(ctx: click.Context) -> None:
         done_list = [t for t in today_tasks if t.done]
         console.print(f"[bold]Today's tasks:[/bold] {len(pending)} pending, {len(done_list)} done")
         for t in today_tasks:
-            status = "[green]✓[/green]" if t.done else "[yellow]○[/yellow]"
+            status = "[green]x[/green]" if t.done else "[yellow]-[/yellow]"
             indicator = _PRIORITY_INDICATOR[t.priority]
             console.print(f"  {status} {indicator} #{t.id} {t.description}")
     else:
@@ -195,7 +195,7 @@ def move(ctx: click.Context, task_id: int, target: str) -> None:
             console.print(f'[red]Invalid date: "{target}". Use "tomorrow" or YYYY-MM-DD.[/red]')
             return
     if db.move_task(conn, task_id, new_date):
-        console.print(f"[green]Moved:[/green] #{task_id} → {new_date}")
+        console.print(f"[green]Moved:[/green] #{task_id} -> {new_date}")
     else:
         console.print(f"[red]Task #{task_id} not found.[/red]")
 
@@ -308,7 +308,7 @@ def stats(ctx: click.Context) -> None:
     console.print(f"  Completion rate:   [bold]{rate}%[/bold]")
     console.print(f"  Avg completed/day: {avg_per_day}")
     console.print(f"  Most productive:   [cyan]{best_day}[/cyan]")
-    console.print(f"  Current streak:    🔥 {current_streak} day{'s' if current_streak != 1 else ''}")
+    console.print(f"  Current streak:    [bold red]fire[/bold red] {current_streak} day{'s' if current_streak != 1 else ''}")
     console.print()
 
 
@@ -329,10 +329,10 @@ def streak(ctx: click.Context) -> None:
     today_done = sum(1 for t in today_tasks if t.done)
     today_total = len(today_tasks)
 
-    console.print(f"\n🔥 Current streak: [bold]{current}[/bold] day{'s' if current != 1 else ''}")
-    console.print(f"🏆 Longest streak: [bold]{longest}[/bold] day{'s' if longest != 1 else ''}")
+    console.print(f"\n[bold red]Streak:[/bold red] [bold]{current}[/bold] day{'s' if current != 1 else ''}")
+    console.print(f"[bold yellow]Longest:[/bold yellow] [bold]{longest}[/bold] day{'s' if longest != 1 else ''}")
     if today_total:
-        console.print(f"📋 Today: [bold]{today_done}/{today_total}[/bold] tasks done")
+        console.print(f"[bold]Today:[/bold] [bold]{today_done}/{today_total}[/bold] tasks done")
     else:
         console.print("[dim]No tasks for today yet.[/dim]")
     console.print()
