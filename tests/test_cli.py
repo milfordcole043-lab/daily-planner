@@ -115,3 +115,88 @@ def test_focus_shown_in_default_view(tmp_path: Path) -> None:
     assert "Focus task" in result.output
     # Focus task should appear with a star marker
     assert "★" in result.output
+
+
+# --- Priority & deadline CLI tests ---
+
+
+def test_add_with_priority(tmp_path: Path) -> None:
+    result = _invoke(tmp_path, ["add", "Urgent fix", "--priority", "high"])
+    assert result.exit_code == 0
+    assert "Added" in result.output
+
+
+def test_add_with_due_date(tmp_path: Path) -> None:
+    result = _invoke(tmp_path, ["add", "Ship feature", "--due", "2026-04-05"])
+    assert result.exit_code == 0
+    assert "Added" in result.output
+
+
+def test_default_view_shows_priority_indicator(tmp_path: Path) -> None:
+    _invoke(tmp_path, ["add", "Critical bug", "--priority", "high"])
+    result = _invoke(tmp_path)
+    assert "🔴" in result.output
+
+
+def test_default_view_shows_due_date(tmp_path: Path) -> None:
+    _invoke(tmp_path, ["add", "Deadline task", "--due", "2026-04-05"])
+    result = _invoke(tmp_path)
+    assert "2026-04-05" in result.output
+
+
+def test_overdue_command_empty(tmp_path: Path) -> None:
+    result = _invoke(tmp_path, ["overdue"])
+    assert result.exit_code == 0
+    assert "No overdue" in result.output
+
+
+def test_overdue_command_shows_past_deadline(tmp_path: Path) -> None:
+    from planner import db as _db
+
+    conn = _db.connect(Path(tmp_path / "test.db"))
+    conn.execute(
+        "INSERT INTO tasks (description, created_at, due_date) VALUES (?, ?, ?)",
+        ("Late task", "2026-03-25", "2026-03-28"),
+    )
+    conn.commit()
+    conn.close()
+    result = _invoke(tmp_path, ["overdue"])
+    assert "Late task" in result.output
+
+
+def test_morning_shows_due_today(tmp_path: Path) -> None:
+    from planner import db as _db
+    from datetime import date as _date
+
+    conn = _db.connect(Path(tmp_path / "test.db"))
+    today = _date.today().isoformat()
+    conn.execute(
+        "INSERT INTO tasks (description, created_at, due_date) VALUES (?, ?, ?)",
+        ("Due now", today, today),
+    )
+    conn.commit()
+    conn.close()
+    result = _invoke(tmp_path, ["morning"])
+    assert "Due now" in result.output
+    assert "due today" in result.output.lower()
+
+
+def test_morning_overdue_by_priority(tmp_path: Path) -> None:
+    from planner import db as _db
+
+    conn = _db.connect(Path(tmp_path / "test.db"))
+    conn.execute(
+        "INSERT INTO tasks (description, created_at, priority) VALUES (?, ?, ?)",
+        ("Low prio", "2026-03-20", "low"),
+    )
+    conn.execute(
+        "INSERT INTO tasks (description, created_at, priority) VALUES (?, ?, ?)",
+        ("High prio", "2026-03-20", "high"),
+    )
+    conn.commit()
+    conn.close()
+    result = _invoke(tmp_path, ["morning"])
+    # High should appear before Low in output
+    high_pos = result.output.index("High prio")
+    low_pos = result.output.index("Low prio")
+    assert high_pos < low_pos

@@ -6,6 +6,7 @@ from datetime import date
 import pytest
 
 from planner import db
+from planner.models import Priority
 
 
 def test_add_task(conn: sqlite3.Connection) -> None:
@@ -110,3 +111,94 @@ def test_set_focus_replaces_previous(conn: sqlite3.Connection) -> None:
     db.set_focus(conn, [t2.id], date.today())
     ids = db.get_focus_ids(conn, date.today())
     assert ids == {t2.id}
+
+
+# --- Priority & deadline tests ---
+
+
+def test_add_task_default_priority(conn: sqlite3.Connection) -> None:
+    task = db.add_task(conn, "Default priority")
+    assert task.priority == Priority.MEDIUM
+    assert task.due_date is None
+
+
+def test_add_task_with_priority(conn: sqlite3.Connection) -> None:
+    task = db.add_task(conn, "Urgent", priority=Priority.HIGH)
+    assert task.priority == Priority.HIGH
+    tasks = db.get_tasks_for_date(conn, date.today())
+    assert tasks[-1].priority == Priority.HIGH
+
+
+def test_add_task_with_due_date(conn: sqlite3.Connection) -> None:
+    due = date(2026, 4, 5)
+    task = db.add_task(conn, "Has deadline", due_date=due)
+    assert task.due_date == due
+    tasks = db.get_tasks_for_date(conn, date.today())
+    assert tasks[-1].due_date == due
+
+
+def test_get_past_deadline_tasks(conn: sqlite3.Connection) -> None:
+    conn.execute(
+        "INSERT INTO tasks (description, created_at, due_date) VALUES (?, ?, ?)",
+        ("Overdue task", date.today().isoformat(), "2026-03-25"),
+    )
+    conn.commit()
+    tasks = db.get_past_deadline_tasks(conn, date(2026, 3, 30))
+    assert len(tasks) == 1
+    assert tasks[0].description == "Overdue task"
+
+
+def test_get_past_deadline_excludes_done(conn: sqlite3.Connection) -> None:
+    conn.execute(
+        "INSERT INTO tasks (description, created_at, due_date, done) VALUES (?, ?, ?, 1)",
+        ("Done task", date.today().isoformat(), "2026-03-25"),
+    )
+    conn.commit()
+    tasks = db.get_past_deadline_tasks(conn, date(2026, 3, 30))
+    assert len(tasks) == 0
+
+
+def test_get_past_deadline_excludes_future(conn: sqlite3.Connection) -> None:
+    conn.execute(
+        "INSERT INTO tasks (description, created_at, due_date) VALUES (?, ?, ?)",
+        ("Future task", date.today().isoformat(), "2026-04-10"),
+    )
+    conn.commit()
+    tasks = db.get_past_deadline_tasks(conn, date(2026, 4, 1))
+    assert len(tasks) == 0
+
+
+def test_get_tasks_due_on(conn: sqlite3.Connection) -> None:
+    target = date(2026, 4, 1)
+    conn.execute(
+        "INSERT INTO tasks (description, created_at, due_date) VALUES (?, ?, ?)",
+        ("Due today", date.today().isoformat(), target.isoformat()),
+    )
+    conn.execute(
+        "INSERT INTO tasks (description, created_at, due_date) VALUES (?, ?, ?)",
+        ("Due tomorrow", date.today().isoformat(), "2026-04-02"),
+    )
+    conn.commit()
+    tasks = db.get_tasks_due_on(conn, target)
+    assert len(tasks) == 1
+    assert tasks[0].description == "Due today"
+
+
+def test_overdue_tasks_sorted_by_priority(conn: sqlite3.Connection) -> None:
+    conn.execute(
+        "INSERT INTO tasks (description, created_at, priority) VALUES (?, ?, ?)",
+        ("Low task", "2026-03-20", "low"),
+    )
+    conn.execute(
+        "INSERT INTO tasks (description, created_at, priority) VALUES (?, ?, ?)",
+        ("High task", "2026-03-20", "high"),
+    )
+    conn.execute(
+        "INSERT INTO tasks (description, created_at, priority) VALUES (?, ?, ?)",
+        ("Medium task", "2026-03-20", "medium"),
+    )
+    conn.commit()
+    tasks = db.get_overdue_tasks(conn, date.today())
+    assert tasks[0].description == "High task"
+    assert tasks[1].description == "Medium task"
+    assert tasks[2].description == "Low task"

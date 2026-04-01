@@ -4,7 +4,7 @@ import sqlite3
 from datetime import date, datetime
 from pathlib import Path
 
-from planner.models import Task
+from planner.models import Priority, Task
 
 DEFAULT_DB = Path.home() / ".daily-planner" / "tasks.db"
 
@@ -14,7 +14,9 @@ CREATE TABLE IF NOT EXISTS tasks (
     description TEXT    NOT NULL,
     created_at  TEXT    NOT NULL,
     done        INTEGER NOT NULL DEFAULT 0,
-    done_at     TEXT
+    done_at     TEXT,
+    priority    TEXT    NOT NULL DEFAULT 'medium',
+    due_date    TEXT
 );
 """
 
@@ -34,23 +36,43 @@ def connect(db_path: Path = DEFAULT_DB) -> sqlite3.Connection:
     conn.execute("PRAGMA foreign_keys = ON")
     conn.execute(_CREATE_TABLE)
     conn.execute(_CREATE_FOCUS_TABLE)
+    _migrate(conn)
     conn.commit()
     return conn
 
 
-def add_task(conn: sqlite3.Connection, description: str) -> Task:
+def _migrate(conn: sqlite3.Connection) -> None:
+    columns = {row[1] for row in conn.execute("PRAGMA table_info(tasks)").fetchall()}
+    if "priority" not in columns:
+        conn.execute("ALTER TABLE tasks ADD COLUMN priority TEXT NOT NULL DEFAULT 'medium'")
+    if "due_date" not in columns:
+        conn.execute("ALTER TABLE tasks ADD COLUMN due_date TEXT")
+
+
+def add_task(
+    conn: sqlite3.Connection,
+    description: str,
+    priority: Priority = Priority.MEDIUM,
+    due_date: date | None = None,
+) -> Task:
     today = date.today().isoformat()
     cur = conn.execute(
-        "INSERT INTO tasks (description, created_at) VALUES (?, ?)",
-        (description, today),
+        "INSERT INTO tasks (description, created_at, priority, due_date) VALUES (?, ?, ?, ?)",
+        (description, today, priority.value, due_date.isoformat() if due_date else None),
     )
     conn.commit()
-    return Task(id=cur.lastrowid, description=description, created_at=date.today())
+    return Task(
+        id=cur.lastrowid,
+        description=description,
+        created_at=date.today(),
+        priority=priority,
+        due_date=due_date,
+    )
 
 
 def get_tasks_for_date(conn: sqlite3.Connection, day: date) -> list[Task]:
     rows = conn.execute(
-        "SELECT id, description, created_at, done, done_at FROM tasks WHERE created_at = ?",
+        "SELECT id, description, created_at, done, done_at, priority, due_date FROM tasks WHERE created_at = ?",
         (day.isoformat(),),
     ).fetchall()
     return [_row_to_task(r) for r in rows]
@@ -58,7 +80,7 @@ def get_tasks_for_date(conn: sqlite3.Connection, day: date) -> list[Task]:
 
 def get_tasks_between(conn: sqlite3.Connection, start: date, end: date) -> list[Task]:
     rows = conn.execute(
-        "SELECT id, description, created_at, done, done_at FROM tasks "
+        "SELECT id, description, created_at, done, done_at, priority, due_date FROM tasks "
         "WHERE created_at BETWEEN ? AND ?",
         (start.isoformat(), end.isoformat()),
     ).fetchall()
@@ -83,8 +105,9 @@ def remove_task(conn: sqlite3.Connection, task_id: int) -> bool:
 
 def get_overdue_tasks(conn: sqlite3.Connection, before: date) -> list[Task]:
     rows = conn.execute(
-        "SELECT id, description, created_at, done, done_at FROM tasks "
-        "WHERE created_at < ? AND done = 0",
+        "SELECT id, description, created_at, done, done_at, priority, due_date FROM tasks "
+        "WHERE created_at < ? AND done = 0 "
+        "ORDER BY CASE priority WHEN 'high' THEN 0 WHEN 'medium' THEN 1 WHEN 'low' THEN 2 END",
         (before.isoformat(),),
     ).fetchall()
     return [_row_to_task(r) for r in rows]
@@ -104,7 +127,7 @@ def set_focus(conn: sqlite3.Connection, task_ids: list[int], day: date) -> list[
         return []
     placeholders = ",".join("?" * len(task_ids))
     rows = conn.execute(
-        f"SELECT id, description, created_at, done, done_at FROM tasks WHERE id IN ({placeholders})",
+        f"SELECT id, description, created_at, done, done_at, priority, due_date FROM tasks WHERE id IN ({placeholders})",
         task_ids,
     ).fetchall()
     return [_row_to_task(r) for r in rows]
@@ -118,6 +141,25 @@ def get_focus_ids(conn: sqlite3.Connection, day: date) -> set[int]:
     return {r[0] for r in rows}
 
 
+def get_past_deadline_tasks(conn: sqlite3.Connection, as_of: date) -> list[Task]:
+    rows = conn.execute(
+        "SELECT id, description, created_at, done, done_at, priority, due_date FROM tasks "
+        "WHERE due_date < ? AND done = 0 "
+        "ORDER BY due_date, CASE priority WHEN 'high' THEN 0 WHEN 'medium' THEN 1 WHEN 'low' THEN 2 END",
+        (as_of.isoformat(),),
+    ).fetchall()
+    return [_row_to_task(r) for r in rows]
+
+
+def get_tasks_due_on(conn: sqlite3.Connection, day: date) -> list[Task]:
+    rows = conn.execute(
+        "SELECT id, description, created_at, done, done_at, priority, due_date FROM tasks "
+        "WHERE due_date = ? AND done = 0",
+        (day.isoformat(),),
+    ).fetchall()
+    return [_row_to_task(r) for r in rows]
+
+
 def _row_to_task(row: tuple) -> Task:
     return Task(
         id=row[0],
@@ -125,4 +167,6 @@ def _row_to_task(row: tuple) -> Task:
         created_at=date.fromisoformat(row[2]),
         done=bool(row[3]),
         done_at=datetime.fromisoformat(row[4]) if row[4] else None,
+        priority=Priority(row[5]),
+        due_date=date.fromisoformat(row[6]) if row[6] else None,
     )
