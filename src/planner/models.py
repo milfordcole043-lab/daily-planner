@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import date, datetime
 from enum import Enum
 
@@ -20,3 +20,4 @@ class Task:
     done_at: datetime | None = None
     priority: Priority = Priority.MEDIUM
     due_date: date | None = None
+    tags: list[str] = field(default_factory=list)

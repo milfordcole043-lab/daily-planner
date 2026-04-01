@@ -49,6 +49,7 @@ def _show_today(ctx: click.Context) -> None:
     table.add_column("ID", style="dim")
     table.add_column("P")
     table.add_column("Task")
+    table.add_column("Tags")
     table.add_column("Due")
     table.add_column("Status")
     for t in focus_tasks + other_tasks:
@@ -56,8 +57,9 @@ def _show_today(ctx: click.Context) -> None:
         prefix = "★ " if t.id in focus_ids else ""
         desc = f"[s]{t.description}[/s]" if t.done else t.description
         due_str = str(t.due_date) if t.due_date else ""
+        tags_str = " ".join(f"[magenta]#{tag}[/magenta]" for tag in t.tags)
         style = "bold cyan" if t.id in focus_ids else None
-        table.add_row(str(t.id), _PRIORITY_INDICATOR[t.priority], f"{prefix}{desc}", due_str, status, style=style)
+        table.add_row(str(t.id), _PRIORITY_INDICATOR[t.priority], f"{prefix}{desc}", tags_str, due_str, status, style=style)
     console.print(table)
 
 
@@ -65,8 +67,9 @@ def _show_today(ctx: click.Context) -> None:
 @click.argument("description")
 @click.option("--priority", "-p", type=click.Choice(["high", "medium", "low"]), default="medium", help="Task priority.")
 @click.option("--due", type=click.DateTime(formats=["%Y-%m-%d"]), default=None, help="Due date (YYYY-MM-DD).")
+@click.option("--tag", "-t", multiple=True, help="Tag for the task (repeatable).")
 @click.pass_context
-def add(ctx: click.Context, description: str, priority: str, due: datetime | None) -> None:
+def add(ctx: click.Context, description: str, priority: str, due: datetime | None, tag: tuple[str, ...]) -> None:
     """Add a new task for today."""
     conn = _get_conn(ctx)
     task = db.add_task(
@@ -74,6 +77,7 @@ def add(ctx: click.Context, description: str, priority: str, due: datetime | Non
         description,
         priority=Priority(priority),
         due_date=due.date() if due else None,
+        tags=list(tag) if tag else None,
     )
     console.print(f"[green]Added:[/green] #{task.id} — {task.description}")
 
@@ -160,6 +164,46 @@ def focus(ctx: click.Context, task_ids: tuple[int, ...]) -> None:
         return
     names = ", ".join(f"#{t.id} {t.description}" for t in focused)
     console.print(f"[green]Focus set:[/green] {names}")
+
+
+@cli.command()
+@click.argument("tag_name")
+@click.pass_context
+def tag(ctx: click.Context, tag_name: str) -> None:
+    """Show tasks with a specific tag."""
+    conn = _get_conn(ctx)
+    tasks = db.get_tasks_by_tag(conn, tag_name)
+    if not tasks:
+        console.print(f"[dim]No tasks with tag [bold]#{tag_name}[/bold].[/dim]")
+        return
+    table = Table(title=f"Tasks tagged #{tag_name}")
+    table.add_column("ID", style="dim")
+    table.add_column("P")
+    table.add_column("Task")
+    table.add_column("Tags")
+    table.add_column("Status")
+    for t in tasks:
+        status = "[green]done[/green]" if t.done else "[yellow]pending[/yellow]"
+        tags_str = " ".join(f"[magenta]#{tg}[/magenta]" for tg in t.tags)
+        table.add_row(str(t.id), _PRIORITY_INDICATOR[t.priority], t.description, tags_str, status)
+    console.print(table)
+
+
+@cli.command()
+@click.pass_context
+def tags(ctx: click.Context) -> None:
+    """List all tags with task counts."""
+    conn = _get_conn(ctx)
+    tag_counts = db.get_all_tags(conn)
+    if not tag_counts:
+        console.print("[dim]No tags yet.[/dim]")
+        return
+    table = Table(title="Tags")
+    table.add_column("Tag")
+    table.add_column("Tasks", justify="right")
+    for tag_name, count in tag_counts:
+        table.add_row(f"[magenta]#{tag_name}[/magenta]", str(count))
+    console.print(table)
 
 
 @cli.command()

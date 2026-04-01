@@ -181,6 +181,61 @@ def test_morning_shows_due_today(tmp_path: Path) -> None:
     assert "due today" in result.output.lower()
 
 
+# --- Tag CLI tests ---
+
+
+def test_add_with_tag(tmp_path: Path) -> None:
+    result = _invoke(tmp_path, ["add", "Code task", "--tag", "code"])
+    assert result.exit_code == 0
+    assert "Added" in result.output
+
+
+def test_add_with_multiple_tags(tmp_path: Path) -> None:
+    result = _invoke(tmp_path, ["add", "Multi tag", "--tag", "code", "--tag", "urgent"])
+    assert result.exit_code == 0
+    result = _invoke(tmp_path)
+    assert "code" in result.output
+    assert "urgent" in result.output
+
+
+def test_default_view_shows_tags(tmp_path: Path) -> None:
+    _invoke(tmp_path, ["add", "Tagged item", "--tag", "work"])
+    result = _invoke(tmp_path)
+    assert "#work" in result.output
+
+
+def test_tag_filter(tmp_path: Path) -> None:
+    _invoke(tmp_path, ["add", "Code stuff", "--tag", "code"])
+    _invoke(tmp_path, ["add", "Personal stuff", "--tag", "personal"])
+    result = _invoke(tmp_path, ["tag", "code"])
+    assert result.exit_code == 0
+    assert "Code stuff" in result.output
+    assert "Personal stuff" not in result.output
+
+
+def test_tag_filter_empty(tmp_path: Path) -> None:
+    result = _invoke(tmp_path, ["tag", "nonexistent"])
+    assert result.exit_code == 0
+    assert "No tasks" in result.output
+
+
+def test_tags_list(tmp_path: Path) -> None:
+    _invoke(tmp_path, ["add", "Task 1", "--tag", "code"])
+    _invoke(tmp_path, ["add", "Task 2", "--tag", "code"])
+    _invoke(tmp_path, ["add", "Task 3", "--tag", "personal"])
+    result = _invoke(tmp_path, ["tags"])
+    assert result.exit_code == 0
+    assert "code" in result.output
+    assert "2" in result.output
+    assert "personal" in result.output
+
+
+def test_tags_list_empty(tmp_path: Path) -> None:
+    result = _invoke(tmp_path, ["tags"])
+    assert result.exit_code == 0
+    assert "No tags" in result.output
+
+
 def test_morning_overdue_by_priority(tmp_path: Path) -> None:
     from planner import db as _db
 

@@ -184,6 +184,48 @@ def test_get_tasks_due_on(conn: sqlite3.Connection) -> None:
     assert tasks[0].description == "Due today"
 
 
+# --- Tag tests ---
+
+
+def test_add_task_with_tags(conn: sqlite3.Connection) -> None:
+    task = db.add_task(conn, "Tagged task", tags=["code", "urgent"])
+    assert sorted(task.tags) == ["code", "urgent"]
+    tasks = db.get_tasks_for_date(conn, date.today())
+    assert sorted(tasks[0].tags) == ["code", "urgent"]
+
+
+def test_get_tags_for_tasks(conn: sqlite3.Connection) -> None:
+    t1 = db.add_task(conn, "Task 1", tags=["code"])
+    t2 = db.add_task(conn, "Task 2", tags=["personal", "health"])
+    tag_map = db.get_tags_for_tasks(conn, [t1.id, t2.id])
+    assert tag_map[t1.id] == ["code"]
+    assert sorted(tag_map[t2.id]) == ["health", "personal"]
+
+
+def test_get_tasks_by_tag(conn: sqlite3.Connection) -> None:
+    db.add_task(conn, "Code task", tags=["code"])
+    db.add_task(conn, "Personal task", tags=["personal"])
+    db.add_task(conn, "Both", tags=["code", "personal"])
+    tasks = db.get_tasks_by_tag(conn, "code")
+    assert len(tasks) == 2
+    descriptions = {t.description for t in tasks}
+    assert descriptions == {"Code task", "Both"}
+
+
+def test_get_all_tags(conn: sqlite3.Connection) -> None:
+    db.add_task(conn, "Task 1", tags=["code", "urgent"])
+    db.add_task(conn, "Task 2", tags=["code"])
+    tag_counts = db.get_all_tags(conn)
+    tag_dict = dict(tag_counts)
+    assert tag_dict["code"] == 2
+    assert tag_dict["urgent"] == 1
+
+
+def test_get_all_tags_empty(conn: sqlite3.Connection) -> None:
+    tag_counts = db.get_all_tags(conn)
+    assert tag_counts == []
+
+
 def test_overdue_tasks_sorted_by_priority(conn: sqlite3.Connection) -> None:
     conn.execute(
         "INSERT INTO tasks (description, created_at, priority) VALUES (?, ?, ?)",

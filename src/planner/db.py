@@ -30,12 +30,23 @@ CREATE TABLE IF NOT EXISTS focus_tasks (
 """
 
 
+_CREATE_TAGS_TABLE = """
+CREATE TABLE IF NOT EXISTS task_tags (
+    task_id INTEGER NOT NULL,
+    tag     TEXT    NOT NULL,
+    PRIMARY KEY (task_id, tag),
+    FOREIGN KEY (task_id) REFERENCES tasks(id) ON DELETE CASCADE
+);
+"""
+
+
 def connect(db_path: Path = DEFAULT_DB) -> sqlite3.Connection:
     db_path.parent.mkdir(parents=True, exist_ok=True)
     conn = sqlite3.connect(str(db_path))
     conn.execute("PRAGMA foreign_keys = ON")
     conn.execute(_CREATE_TABLE)
     conn.execute(_CREATE_FOCUS_TABLE)
+    conn.execute(_CREATE_TAGS_TABLE)
     _migrate(conn)
     conn.commit()
     return conn
@@ -54,19 +65,28 @@ def add_task(
     description: str,
     priority: Priority = Priority.MEDIUM,
     due_date: date | None = None,
+    tags: list[str] | None = None,
 ) -> Task:
     today = date.today().isoformat()
     cur = conn.execute(
         "INSERT INTO tasks (description, created_at, priority, due_date) VALUES (?, ?, ?, ?)",
         (description, today, priority.value, due_date.isoformat() if due_date else None),
     )
+    task_id = cur.lastrowid
+    tag_list = tags or []
+    for tag in tag_list:
+        conn.execute(
+            "INSERT INTO task_tags (task_id, tag) VALUES (?, ?)",
+            (task_id, tag),
+        )
     conn.commit()
     return Task(
-        id=cur.lastrowid,
+        id=task_id,
         description=description,
         created_at=date.today(),
         priority=priority,
         due_date=due_date,
+        tags=tag_list,
     )
 
 
@@ -75,7 +95,9 @@ def get_tasks_for_date(conn: sqlite3.Connection, day: date) -> list[Task]:
         "SELECT id, description, created_at, done, done_at, priority, due_date FROM tasks WHERE created_at = ?",
         (day.isoformat(),),
     ).fetchall()
-    return [_row_to_task(r) for r in rows]
+    tasks = [_row_to_task(r) for r in rows]
+    _attach_tags(conn, tasks)
+    return tasks
 
 
 def get_tasks_between(conn: sqlite3.Connection, start: date, end: date) -> list[Task]:
@@ -84,7 +106,9 @@ def get_tasks_between(conn: sqlite3.Connection, start: date, end: date) -> list[
         "WHERE created_at BETWEEN ? AND ?",
         (start.isoformat(), end.isoformat()),
     ).fetchall()
-    return [_row_to_task(r) for r in rows]
+    tasks = [_row_to_task(r) for r in rows]
+    _attach_tags(conn, tasks)
+    return tasks
 
 
 def complete_task(conn: sqlite3.Connection, task_id: int) -> bool:
@@ -110,7 +134,9 @@ def get_overdue_tasks(conn: sqlite3.Connection, before: date) -> list[Task]:
         "ORDER BY CASE priority WHEN 'high' THEN 0 WHEN 'medium' THEN 1 WHEN 'low' THEN 2 END",
         (before.isoformat(),),
     ).fetchall()
-    return [_row_to_task(r) for r in rows]
+    tasks = [_row_to_task(r) for r in rows]
+    _attach_tags(conn, tasks)
+    return tasks
 
 
 def set_focus(conn: sqlite3.Connection, task_ids: list[int], day: date) -> list[Task]:
@@ -130,7 +156,9 @@ def set_focus(conn: sqlite3.Connection, task_ids: list[int], day: date) -> list[
         f"SELECT id, description, created_at, done, done_at, priority, due_date FROM tasks WHERE id IN ({placeholders})",
         task_ids,
     ).fetchall()
-    return [_row_to_task(r) for r in rows]
+    tasks = [_row_to_task(r) for r in rows]
+    _attach_tags(conn, tasks)
+    return tasks
 
 
 def get_focus_ids(conn: sqlite3.Connection, day: date) -> set[int]:
@@ -148,7 +176,9 @@ def get_past_deadline_tasks(conn: sqlite3.Connection, as_of: date) -> list[Task]
         "ORDER BY due_date, CASE priority WHEN 'high' THEN 0 WHEN 'medium' THEN 1 WHEN 'low' THEN 2 END",
         (as_of.isoformat(),),
     ).fetchall()
-    return [_row_to_task(r) for r in rows]
+    tasks = [_row_to_task(r) for r in rows]
+    _attach_tags(conn, tasks)
+    return tasks
 
 
 def get_tasks_due_on(conn: sqlite3.Connection, day: date) -> list[Task]:
@@ -157,7 +187,49 @@ def get_tasks_due_on(conn: sqlite3.Connection, day: date) -> list[Task]:
         "WHERE due_date = ? AND done = 0",
         (day.isoformat(),),
     ).fetchall()
-    return [_row_to_task(r) for r in rows]
+    tasks = [_row_to_task(r) for r in rows]
+    _attach_tags(conn, tasks)
+    return tasks
+
+
+def get_tags_for_tasks(conn: sqlite3.Connection, task_ids: list[int]) -> dict[int, list[str]]:
+    if not task_ids:
+        return {}
+    placeholders = ",".join("?" * len(task_ids))
+    rows = conn.execute(
+        f"SELECT task_id, tag FROM task_tags WHERE task_id IN ({placeholders}) ORDER BY tag",
+        task_ids,
+    ).fetchall()
+    result: dict[int, list[str]] = {tid: [] for tid in task_ids}
+    for task_id, tag in rows:
+        result[task_id].append(tag)
+    return result
+
+
+def get_tasks_by_tag(conn: sqlite3.Connection, tag: str) -> list[Task]:
+    rows = conn.execute(
+        "SELECT t.id, t.description, t.created_at, t.done, t.done_at, t.priority, t.due_date "
+        "FROM tasks t JOIN task_tags tt ON t.id = tt.task_id WHERE tt.tag = ?",
+        (tag,),
+    ).fetchall()
+    tasks = [_row_to_task(r) for r in rows]
+    _attach_tags(conn, tasks)
+    return tasks
+
+
+def get_all_tags(conn: sqlite3.Connection) -> list[tuple[str, int]]:
+    rows = conn.execute(
+        "SELECT tag, COUNT(*) FROM task_tags GROUP BY tag ORDER BY COUNT(*) DESC, tag",
+    ).fetchall()
+    return [(r[0], r[1]) for r in rows]
+
+
+def _attach_tags(conn: sqlite3.Connection, tasks: list[Task]) -> None:
+    if not tasks:
+        return
+    tag_map = get_tags_for_tasks(conn, [t.id for t in tasks])
+    for t in tasks:
+        t.tags = tag_map.get(t.id, [])
 
 
 def _row_to_task(row: tuple) -> Task:
