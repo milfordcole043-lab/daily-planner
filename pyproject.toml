@@ -1,0 +1,22 @@
+[project]
+name = "daily-planner"
+version = "0.1.0"
+description = "A simple CLI daily task planner"
+requires-python = ">=3.12"
+dependencies = [
+    "click>=8.1",
+    "rich>=13.0",
+]
+
+[project.scripts]
+plan = "planner.cli:cli"
+
+[build-system]
+requires = ["setuptools>=68.0"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
